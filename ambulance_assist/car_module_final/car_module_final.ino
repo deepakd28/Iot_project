@@ -7,6 +7,7 @@
 
 LiquidCrystal_I2C lcd(0x27, 16, 2); 
 HardwareSerial gpsSerial(0);
+HardwareSerial mySerial(2);
 TinyGPSPlus gps;
 
 
@@ -28,6 +29,16 @@ int angleChange = 0;
 boolean buttonPressed = false;
 int timer= 10;
 int flag =0; // flag to indicate if the button is pressed
+String command;
+String name;
+String blood_group;
+String contact_no;
+String c_no;
+// String temp_stat;
+
+// Flag to indicate if override is received
+bool overrideReceived = false;
+
 
 void setup() {
   Serial.begin(9600);
@@ -44,11 +55,18 @@ void setup() {
   lcd.clear();
 normalmode();
 gpsSerial.begin(9600);
+mySerial.begin(9600); 
+sendSMSamb("hello");
+
 }
 void normalmode(){
 lcd.clear();
 lcd.setCursor(3, 0);
 lcd.print("ACS SYSTEM");
+if(name!=0){
+  lcd.setCursor(0, 1);
+  lcd.print(name);
+}
 timer=10;
 flag=0;
 }
@@ -87,6 +105,48 @@ digitalWrite(Buzzerpin, LOW);
 }
 
 void loop() {
+    static bool overrideProcessed = false; // Flag to indicate if override has been processed
+
+  if (mySerial.available() > 0) {
+    String msg = mySerial.readStringUntil('\n');
+    // Serial.println(overrideProcessed);
+    
+    if (!overrideProcessed) {
+    
+      if (msg.startsWith("+CMT:")) {
+        Serial.println("------------inside trial block-----------");
+  int space1 = msg.indexOf(' ');
+  int space2 = msg.indexOf(',', space1 + 1);
+  if (space1 != -1 && space2 != -1) {
+    // Extract data
+     c_no = msg.substring(space1 + 1, space2);
+    Serial.println(c_no);
+  }
+      }
+      if (msg.startsWith("getstatus")) {
+
+        statSMS(c_no);
+      }
+      if (msg.startsWith("override")) {
+        Wire.endTransmission(true);
+        overrideProcessed = true;
+        overrideReceived = true;
+        sendSMS("Override received. Send data in the format:store <space> Name <space> Blood_group <space> Contact_no",c_no);
+      }
+    } else {
+      // This block will execute only after override is received and processed
+      if (msg.startsWith("store")) {
+        
+      if (overrideReceived) {
+        Serial.println("condition entered");
+        parseSMS(msg);
+        overrideReceived = false; // Reset overrideReceived after parsing
+        overrideProcessed = false; // Reset overrideProcessed to allow processing of next override
+      }
+      }
+    }
+    Serial.println(msg); // Print received SMS to Serial Monitor
+  }
   while (gpsSerial.available() > 0) {
     if (gps.encode(gpsSerial.read())) {
       
@@ -128,12 +188,12 @@ void loop() {
   if (trigger2) {
     trigger2count++;
     angleChange = pow(pow(gx, 2) + pow(gy, 2) + pow(gz, 2), 0.5);
-    Serial.println(angleChange);
+    // Serial.println(angleChange);
     if (angleChange >= 30 && angleChange <= 400) { // if orientation changes by between 80-100 degrees
       trigger3 = true;
       trigger2 = false;
       trigger2count = 0;
-      Serial.println(angleChange);
+      // Serial.println(angleChange);
       Serial.println("TRIGGER 3 ACTIVATED");
     }
   }
@@ -142,12 +202,12 @@ void loop() {
     trigger3count++;
     if (trigger3count >= 10) {
       angleChange = pow(pow(gx, 2) + pow(gy, 2) + pow(gz, 2), 0.5);
-      Serial.println(angleChange);
+      // Serial.println(angleChange);
       if (angleChange >= 0 && angleChange <= 10) { // if orientation changes remains between 0-10 degrees
         fall = true;
         trigger3 = false;
         trigger3count = 0;
-        Serial.println(angleChange);
+        // Serial.println(angleChange);
       }
       else { // user regained normal orientation
         trigger3 = false;
@@ -196,6 +256,7 @@ void mpu_read() {
 }
 void crashcall(){
 //enter the send code for ambulance
+    SOSSMS(c_no);
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("wait for help!!!");
@@ -206,11 +267,8 @@ void crashcall(){
     Serial.println("Coordinates: ");
     Serial.print(gps.location.lat(), 8);
     Serial.print(" ");
-    String mapLink = "https://www.google.com/maps/place/" + String(gps.location.lat(), 8) + "," + String(gps.location.lng(), 8);
     Serial.println(gps.location.lng(), 8);
     digitalWrite(Buzzerpin, LOW);
-    Serial.print("Google Maps Link: ");
-    Serial.println(mapLink);
     delay(300000);
     normalmode();
     lcd.noBlink();
@@ -218,19 +276,126 @@ void crashcall(){
 }
 void getCoordinates() {
   if (gps.location.isValid()) {
-    Serial.print("Latitude: ");
-    Serial.print(gps.location.lat(), 8);
-    Serial.print(" Longitude: ");
-    Serial.println(gps.location.lng(), 8);
+    // Serial.print("Latitude: ");
+    // Serial.print(gps.location.lat(), 8);
+    // Serial.print(" Longitude: ");
+    // Serial.println(gps.location.lng(), 8);
 
     // Generate Google Maps link
     String mapLink = "https://www.google.com/maps/place/" + String(gps.location.lat(), 8) + "," + String(gps.location.lng(), 8);
     
-    Serial.print("Google Maps Link: ");
-    Serial.println(mapLink);
+    // Serial.print("Google Maps Link: ");
+    // Serial.println(mapLink);
 
 
   } else {
-    Serial.println("No GPS data available");
+    // Serial.println("No GPS data available");
   }
+}
+void sendSMS(const char* message,String phno) {
+  mySerial.println("AT+CMGF=1");    // Sets the GSM Module in Text Mode
+  delay(1000);  // Delay of 1 second
+  
+  // Replace the destination phone number with the appropriate one
+  // String send_inst = 
+  mySerial.println("AT+CMGS="+phno+"\r"); // Replace x with destination mobile number
+  delay(1000);
+  
+  // Send the message
+  mySerial.println(message);
+  delay(100);
+  
+  mySerial.println((char)26); // ASCII code of CTRL+Z for ending the SMS
+  delay(1000);
+  Serial.println("exiting sendSMS!!!");
+}
+void sendSMSamb(const char* message) {
+  mySerial.println("AT+CMGF=1");    // Sets the GSM Module in Text Mode
+  delay(1000);  // Delay of 1 second
+  
+  // Replace the destination phone number with the appropriate one
+  // String send_inst = 
+  mySerial.println("AT+CMGS=\"+918217811621\"\r"); // Replace x with destination mobile number
+  delay(1000);
+  
+  // Send the message
+  mySerial.println(message);
+  delay(100);
+  
+  mySerial.println((char)26); // ASCII code of CTRL+Z for ending the SMS
+  delay(1000);
+  Serial.println("exiting sendSMS!!!");
+}
+
+void receiveSMS() {
+  Serial.println("in text mode");
+  mySerial.println("AT+CNMI=2,2,0,0,0"); // AT Command to receive a live SMS
+  delay(1000);
+}
+
+void makeCall() {
+  mySerial.println("ATD+918217811621;"); // Replace x with the phone number you want to call
+  delay(1000); // Delay to allow time for the call to be initiated
+}
+void parseSMS(String msg) {
+  // Split the received message into parts
+  Serial.println("entered parsing");
+  Serial.println(msg);
+  int space1 = msg.indexOf(' ');
+  int space2 = msg.indexOf(' ', space1 + 1);
+  int space3 = msg.indexOf(' ', space2 + 1);
+  if (space1 != -1 && space2 != -1 && space3 !=-1) {
+    // Extract data
+    command = msg.substring(0, space1);
+    name = msg.substring(space1 + 1, space2);
+    blood_group = msg.substring(space2 + 1,space3);
+    contact_no = msg.substring(space3 + 1);
+    // Reset override flag
+    overrideReceived = false;
+    Serial.println("exited Parsing");
+    
+    // Concatenate strings
+    String temp_stat = "successfully added data: \n";
+    temp_stat.concat("Name: ");
+    temp_stat.concat(name);
+    temp_stat.concat("\nBlood_type: ");
+    temp_stat.concat(blood_group);
+    temp_stat.concat("\nContact: ");
+    temp_stat.concat(contact_no);
+    Serial.println("---------final output---------");
+    Serial.println(temp_stat);
+    sendSMS(temp_stat.c_str(),c_no); // Convert String to const char* and pass to sendSMS
+  } 
+  normalmode();
+}
+void statSMS(String phno){
+  String temp_stat = "current data: \n";
+    temp_stat.concat("Name: ");
+    temp_stat.concat(name);
+    temp_stat.concat("\nBlood_type: ");
+    temp_stat.concat(blood_group);
+    temp_stat.concat("\nContact: ");
+    temp_stat.concat(contact_no);
+    Serial.println("---------final output---------");
+    Serial.println(temp_stat);
+    sendSMS(temp_stat.c_str(),phno);
+}
+void SOSSMS(String phno){
+      String mapLink = "https://www.google.com/maps/place/" + String(gps.location.lat(), 8) + "," + String(gps.location.lng(), 8);
+  String SOS_stat = "SOS data: \n";
+    SOS_stat.concat("Name: ");
+    SOS_stat.concat(name);
+    SOS_stat.concat("\nBlood_type: ");
+    SOS_stat.concat(blood_group);
+    SOS_stat.concat("\nContact: ");
+    SOS_stat.concat(contact_no);
+    // SOS_stat.concat("\nCoordinates: ");
+    // SOS_stat.concat(gps.location.lat(), 8);
+    // SOS_stat.concat(" ");
+    // SOS_stat.concat(gps.location.lng(), 8);
+    SOS_stat.concat("\nMap link: ");
+    SOS_stat.concat(mapLink);
+    Serial.println("---------final output---------");
+    Serial.println(SOS_stat);
+    sendSMSamb(SOS_stat.c_str());
 }
