@@ -19,6 +19,8 @@ bool autostart;
 bool autostat = false;
 int dry_run = 0;
 int flag=0;
+int count = 0;
+int mflag=0;
 String buff;
 String buff2;
 String buff3;
@@ -37,6 +39,7 @@ String motor_stat;
 
 void setup() {
   pinMode(current_pin, INPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
   pinMode(on_switch, INPUT_PULLUP);
   pinMode(off_switch, INPUT_PULLUP);
   pinMode(switch1, OUTPUT);
@@ -51,6 +54,7 @@ void setup() {
       delay(1000);
       ESP.restart();
     }
+    delay(5000);
   sim800L.begin(9600);
   Serial.println("Initializing...");
   sim800L.println("AT");
@@ -73,6 +77,17 @@ void setup() {
   slave3_no=EEPROM.readString(slave3_address);
   slave4_no=EEPROM.readString(slave4_address);
   autostart=EEPROM.readBool(autostart_add);
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(1000);                   
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(500);                   
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(1000);                   
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(500);                   
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(1000);                   
+    digitalWrite(LED_BUILTIN, LOW);
 }
 
 
@@ -83,11 +98,19 @@ void loop() {
   if(onbtn_stat==LOW){
     Serial.println(onbtn_stat);
     pumpon(0);
+    mflag=1;
   }
   int offbtn_stat = digitalRead(off_switch);
-  if(offbtn_stat==LOW){
+  if(offbtn_stat==LOW && motor_stat=="ON"){
     pumpoff(0);
-    delay(2000);
+  }
+  if(motor_stat=="ON"){
+    count++;
+    delay(1000);
+    if(count==120){
+      count=0;
+      dry_test();
+    }
   }
   int current_stat = digitalRead(current_pin);
   if(current_stat==1 && flag == 0){
@@ -98,6 +121,7 @@ void loop() {
       delay(5000);
       pumpon(1);
     }else if(autostart == false){
+      digitalWrite(LED_BUILTIN, HIGH);
       send_sms("Current : ON",master_no);
       delay(2500);
       send_sms("Current : ON",slave1_no);
@@ -111,12 +135,14 @@ void loop() {
     Serial.println("-------------All sms sent--------------");
       sim800L.println("AT+CMGDA=\"DEL ALL\"");
       waitForResponse();
+      digitalWrite(LED_BUILTIN, LOW);
     }
   }
   if(current_stat==0 && flag == 1){
     flag=0;
     motor_stat="OFF";
       Serial.println("-------------current off--------------");
+      digitalWrite(LED_BUILTIN, HIGH);
       send_sms("Current : OFF",master_no);
       delay(2500);
       send_sms("Current : OFF",slave1_no);
@@ -128,6 +154,7 @@ void loop() {
       send_sms("Current : OFF",slave4_no);
       delay(2500);
     Serial.println("-------------All sms sent--------------");
+    digitalWrite(LED_BUILTIN, LOW);
   }
   while(sim800L.available()){
     buff = sim800L.readStringUntil('\n');
@@ -390,7 +417,8 @@ void pumpon(int ch){
   motor_stat="ON";
   if(autostat == true){
     autostat=false;
-      delay(5000);
+      // delay(5000);
+      digitalWrite(LED_BUILTIN, HIGH);
       send_sms(update_sms(),master_no);
       delay(1000);
       send_sms(update_sms(),slave1_no);
@@ -404,7 +432,9 @@ void pumpon(int ch){
     Serial.println("-------------All sms sent--------------");
       sim800L.println("AT+CMGDA=\"DEL ALL\"");
       waitForResponse();
+      digitalWrite(LED_BUILTIN, LOW);
   }else if(autostat == false){
+    digitalWrite(LED_BUILTIN, HIGH);
       send_sms(update_sms(),master_no);
       delay(1000);
       send_sms(update_sms(),slave1_no);
@@ -418,6 +448,7 @@ void pumpon(int ch){
       Serial.println("-------------All sms sent--------------");
       sim800L.println("AT+CMGDA=\"DEL ALL\"");
       waitForResponse();
+      digitalWrite(LED_BUILTIN, LOW);
     }
     dry_test();
 }
@@ -430,6 +461,7 @@ void pumpoff(int ch){
   }
   Serial.println("----------motor off-------------");
   motor_stat="OFF";
+  digitalWrite(LED_BUILTIN, HIGH);
   send_sms(update_sms(),master_no);
   delay(1000);
   send_sms(update_sms(),slave1_no);
@@ -443,15 +475,18 @@ void pumpoff(int ch){
   Serial.println("-------------All sms sent--------------");
   sim800L.println("AT+CMGDA=\"DEL ALL\"");
   waitForResponse(); 
+  digitalWrite(LED_BUILTIN, LOW);
 }
 void dry_test(){
   delay(5000);
   int dry_run = digitalRead(dry_pin);
   if(dry_run == 0){
     digitalWrite(switch2, LOW);
-    delay(1000);                   
+    delay(2000);                   
     digitalWrite(switch2, HIGH); 
+    motor_stat="OFF";
     Serial.println("Dry run : Failed Moter off");
+    digitalWrite(LED_BUILTIN, HIGH);
     send_sms("Dry run : Failed\nMoter off",master_no);
     delay(1000);
     send_sms("Dry run : Failed\nMoter off",slave1_no);
@@ -465,6 +500,7 @@ void dry_test(){
     Serial.println("-------------All sms sent--------------");
     sim800L.println("AT+CMGDA=\"DEL ALL\"");
     waitForResponse();
+    digitalWrite(LED_BUILTIN, LOW);
   }
 
 }
